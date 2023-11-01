@@ -96,9 +96,9 @@ impl TaskManager {
 
     /// Add syscall times
     fn add_syscall_times(&self, id: usize) {
-        let inner = self.inner.exclusive_access();
-        let mut ct = inner.tasks[inner.current_task];
-        ct.syscall_times[id] += 1;
+        let mut inner = self.inner.exclusive_access();
+        let ct = inner.current_task;
+        inner.tasks[ct].syscall_times[id] += 1
     }
     
     /// Get timer
