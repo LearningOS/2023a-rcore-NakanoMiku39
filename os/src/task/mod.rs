@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::VirtAddr;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -75,6 +76,23 @@ impl TaskManager {
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
     /// But in ch4, we load apps statically, so the first task is a real app.
+    fn mmap_current(&self, start_va: VirtAddr, end_va: VirtAddr, _port: usize) -> isize{
+        // 找当前任务
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let current_task = &mut inner.tasks[current];
+        current_task.memory_set.mmap(start_va, end_va, _port)
+    }
+
+    fn munmap_current(&self, start_va: VirtAddr, end_va: VirtAddr) -> isize{
+        // 找当前任务
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let current_task = &mut inner.tasks[current];
+        current_task.memory_set.munmap(start_va, end_va)
+    }
+
+
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
@@ -201,4 +219,14 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Map current task memory
+pub fn mmap_current(start_va: VirtAddr, end_va: VirtAddr, _port: usize) -> isize {
+    TASK_MANAGER.mmap_current(start_va, end_va, _port)
+}
+
+/// Unmap current task memory
+pub fn munmap_current(start_va: VirtAddr, end_va: VirtAddr) -> isize {
+    TASK_MANAGER.munmap_current(start_va, end_va)
 }
