@@ -17,6 +17,8 @@ mod task;
 use crate::loader::{get_app_data, get_num_app};
 use crate::mm::VirtAddr;
 use crate::sync::UPSafeCell;
+use crate::syscall::{TaskInfo};
+use crate::timer::get_time_us;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -76,7 +78,33 @@ impl TaskManager {
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
     /// But in ch4, we load apps statically, so the first task is a real app.
-    fn mmap_current(&self, start_va: VirtAddr, end_va: VirtAddr, _port: usize) -> isize{
+    
+    /// get_task_info
+    pub fn get_task_info(&self, _ti: *mut TaskInfo) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let current_task = &mut inner.tasks[current];
+        let current_time = get_time_us() / 1000;
+        println!("Current time: {}", current_time);
+        unsafe {
+            (*_ti).status = TaskStatus::Running;
+            (*_ti).syscall_times = current_task.syscall_times;
+            (*_ti).time = current_time - current_task.timer;
+        }
+        drop(inner);
+    }
+
+    /// add_syscall_times
+    pub fn add_syscall_times(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let current_task = &mut inner.tasks[current];
+        current_task.syscall_times[id] += 1;
+        drop(inner);
+    }
+     
+     /// mmap_current
+    pub fn mmap_current(&self, start_va: VirtAddr, end_va: VirtAddr, _port: usize) -> isize {
         // 找当前任务
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
@@ -84,7 +112,8 @@ impl TaskManager {
         current_task.memory_set.mmap(start_va, end_va, _port)
     }
 
-    fn munmap_current(&self, start_va: VirtAddr, end_va: VirtAddr) -> isize{
+    /// munmap_current
+    pub fn munmap_current(&self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
         // 找当前任务
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
@@ -98,6 +127,9 @@ impl TaskManager {
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
+
+        next_task.timer = get_time_us() / 1000;
+
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -159,6 +191,12 @@ impl TaskManager {
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
+
+            // let next_task = &mut inner.tasks[next];
+            if inner.tasks[next].timer == 0 {
+                inner.tasks[next].timer = get_time_us() / 1000;
+            }
+
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -167,7 +205,8 @@ impl TaskManager {
                 __switch(current_task_cx_ptr, next_task_cx_ptr);
             }
             // go back to user mode
-        } else {
+        } 
+        else {
             panic!("All applications completed!");
         }
     }
@@ -219,6 +258,16 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get task info
+pub fn get_task_info(_ti: *mut TaskInfo) {
+    TASK_MANAGER.get_task_info(_ti);
+}
+
+/// Add syscall times
+pub fn add_syscall_times(id: usize) {
+    TASK_MANAGER.add_syscall_times(id);
 }
 
 /// Map current task memory

@@ -1,18 +1,21 @@
 //! Process management syscalls
 use crate::{
-    config::{MAX_SYSCALL_NUM, },
-    mm::VirtAddr,
+    config::{MAX_SYSCALL_NUM},
+    mm::{VirtAddr, PhysAddr, PageTable, VirtPageNum, },
     task::{
-        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, //current_user_token,
-        mmap_current, munmap_current,
+        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, current_user_token,
+        mmap_current, munmap_current, get_task_info,
     },
-    //timer::get_time_us,
+    timer::get_time_us,
 };
 
+/// TimeVal
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
+    /// 秒
     pub sec: usize,
+    /// 微秒
     pub usec: usize,
 }
 
@@ -20,11 +23,11 @@ pub struct TimeVal {
 #[allow(dead_code)]
 pub struct TaskInfo {
     /// Task status in it's life cycle
-    status: TaskStatus,
+    pub status: TaskStatus,
     /// The numbers of syscall called by task
-    syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
     /// Total running time of task
-    time: usize,
+    pub time: usize,
 }
 
 /// task exits and submit an exit code
@@ -46,18 +49,18 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    /*
-    let us = get_time_us();
     
+    let us = get_time_us();
+    //println!("us: {}", us);
+    let p = v_to_p(_ts);
     unsafe{
-        let sec_va = &((*_ts).sec) as *const usize;
-        let usec_va = &((*_ts).usec) as *const usize;
-        let sec_pa = v_to_p(sec_va as usize) as *mut usize;
-        let usec_pa = v_to_p(usec_va as usize) as *mut usize;
-        *sec_pa = us / 1_000_000;
-        *usec_pa = us % 1_000_000;
+        *p = TimeVal {
+            sec: us / 1_000_000,
+            usec: us % 1_000_000,    
+        };
+        //println!("sec: {}", us /1_000);
+
     }
-    */
     0
 }
 
@@ -67,15 +70,14 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     // 参数指针来源于用户空间，是虚拟地址，要转换成物理地址
-    // let status_pa = &(VtoP((*_ti).status)) as *const TaskStatus;
-    // let time_va = &(VtoP((*_ti).time)) as *mut usize;
-    
     trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
+    let p: *mut TaskInfo = v_to_p(_ti);
+    get_task_info(p);
     0
 }
 
 
-// YOUR JOB: Implement mmap.
+/// YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
     // 先检查权限，然后找到当前任务，最后映射
@@ -90,26 +92,18 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         return -1
     }
 
-    if _len == 0 {
-        return 0
-    }
-
     let end_va: VirtAddr = VirtAddr(_start + _len);
     mmap_current(start_va, end_va, _port)
 }
 
 
-// YOUR JOB: Implement munmap.
+/// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
     let start_va: VirtAddr = _start.into();
     if !start_va.aligned() {
         debug!("Unmap failed: address not aligned");
         return -1
-    }
-
-    if _len == 0 {
-        return 0
     }
 
     let end_va: VirtAddr = VirtAddr(_start + _len);
@@ -127,13 +121,20 @@ pub fn sys_sbrk(size: i32) -> isize {
     }
 }
 
-/*
+
 /// 虚拟地址转换成物理地址
-fn v_to_p(user_va: usize) -> usize {
+fn v_to_p<T>(user_va: *const T) -> *mut T {
+    // 获取当前进程页表
     let page_table = PageTable::from_token(current_user_token());
-    let vpn = VirtAddr(user_va).floor();
-    let offset = VirtAddr(user_va).page_offset();
-    let ppn = page_table.translate(vpn).unwrap().ppn();
-    ppn.0 << PAGE_SIZE_BITS + offset
+    // 计算出vpn
+    let vpn: VirtPageNum = VirtAddr(user_va as usize).floor();
+    // 计算出offset
+    let offset: usize = VirtAddr(user_va as usize).page_offset();
+    // 通过页表找出ppn
+    let ppn: PhysAddr = page_table.translate(vpn).unwrap().ppn().into();
+    // 转换成usize
+    let user_ppn: usize = ppn.into();
+    // 加上offset形成物理地址
+    let user_pa: *mut T = (user_ppn + offset) as *mut T;
+    user_pa
 }
-*/
