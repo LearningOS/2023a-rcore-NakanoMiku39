@@ -291,10 +291,19 @@ impl MemorySet {
             }
             vpn.step();
         }
-
+        let mut perm: MapPermission = MapPermission::U;
+        if _port & (1 << 0) != 0 {
+            perm |= MapPermission::R;
+        }
+        if _port & (1 << 1) != 0 {
+            perm |= MapPermission::W;
+        }
+        if _port & (1 << 2) != 0 {
+            perm |= MapPermission::X;
+        }
         // 开始映射
         if start_va < end_va {
-            let perm: MapPermission = MapPermission{bits: _port as u8};
+            
             self.insert_framed_area(start_va, end_va, perm);
         }
         0
@@ -322,7 +331,6 @@ impl MemorySet {
         // 释放内存
         vpn = start_vpn;
         while vpn != end_vpn {
-            // let vpn = VirtPageNum(start_vpn);
             match self.find_map_area(vpn) {
                 Some(mut map_area) => {
                     map_area.unmap_one(&mut (self.page_table), vpn);
