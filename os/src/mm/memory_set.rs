@@ -300,10 +300,90 @@ impl MemorySet {
             false
         }
     }
+
+    fn find_map_area(&mut self, vpn: VirtPageNum) -> Option<MapArea>{
+        for index in 0 .. self.areas.len() {
+            let map_area = &(self.areas[index]);
+            if map_area.vpn_range.get_start() <= vpn && map_area.vpn_range.get_end() > vpn {
+                return Some(self.areas.swap_remove(index));
+            }
+        }
+        None
+    }
+    
+    /// Map memory
+    pub fn mmap(&mut self, start_va: VirtAddr, end_va: VirtAddr, _port: usize) -> isize {
+        // 判断页号是否被映射过
+        let start_vpn: VirtPageNum = start_va.floor().into();
+        let end_vpn: VirtPageNum = end_va.ceil().into();
+        let mut vpn: VirtPageNum = start_vpn;
+        while vpn != end_vpn{
+            match self.translate(vpn) {
+                Some(pte) => {
+                    if pte.is_valid() {
+                        return -1
+                    }
+                },
+                None => {}
+            }
+            vpn.step();
+        }
+        let mut perm: MapPermission = MapPermission::U;
+        if _port & (1 << 0) != 0 {
+            perm |= MapPermission::R;
+        }
+        if _port & (1 << 1) != 0 {
+            perm |= MapPermission::W;
+        }
+        if _port & (1 << 2) != 0 {
+            perm |= MapPermission::X;
+        }
+        // 开始映射
+        if start_va < end_va {
+            self.insert_framed_area(start_va, end_va, perm);
+        }
+        0
+    }
+
+    /// Unmap memory
+    pub fn munmap(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        let start_vpn: VirtPageNum = start_va.floor().into();
+        let end_vpn: VirtPageNum = end_va.ceil().into();
+        let mut vpn = start_vpn;
+        while vpn != end_vpn{
+            match self.translate(vpn) {
+                Some(pte) => {
+                    if !pte.is_valid() {
+                        return -1
+                    }
+                },
+                None => {
+                    return -1
+                }
+            }
+            vpn.step();
+        }
+
+        // 释放内存
+        vpn = start_vpn;
+        while vpn != end_vpn {
+            match self.find_map_area(vpn) {
+                Some(mut map_area) => {
+                    map_area.unmap_one(&mut (self.page_table), vpn);
+                    self.areas.push(map_area);
+                },
+                None => {
+                    return -1
+                }
+            }
+            vpn.step();
+        }
+        0
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
-    vpn_range: VPNRange,
+    pub vpn_range: VPNRange,
     data_frames: BTreeMap<VirtPageNum, FrameTracker>,
     map_type: MapType,
     map_perm: MapPermission,

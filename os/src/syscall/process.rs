@@ -4,17 +4,22 @@ use alloc::sync::Arc;
 use crate::{
     config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
+    mm::{translated_refmut, translated_str, PageTable, VirtAddr, PhysAddr, VirtPageNum},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        suspend_current_and_run_next, TaskStatus, TaskControlBlock,
+        mmap_current, munmap_current,
     },
+    timer::get_time_us,
 };
 
 #[repr(C)]
 #[derive(Debug)]
+/// 进程的时间
 pub struct TimeVal {
+    /// 秒
     pub sec: usize,
+    /// 微秒
     pub usec: usize,
 }
 
@@ -43,11 +48,13 @@ pub fn sys_yield() -> isize {
     0
 }
 
+/// 获取进程号
 pub fn sys_getpid() -> isize {
     trace!("kernel: sys_getpid pid:{}", current_task().unwrap().pid.0);
     current_task().unwrap().pid.0 as isize
 }
 
+/// fork
 pub fn sys_fork() -> isize {
     trace!("kernel:pid[{}] sys_fork", current_task().unwrap().pid.0);
     let current_task = current_task().unwrap();
@@ -63,6 +70,7 @@ pub fn sys_fork() -> isize {
     new_pid as isize
 }
 
+/// exec
 pub fn sys_exec(path: *const u8) -> isize {
     trace!("kernel:pid[{}] sys_exec", current_task().unwrap().pid.0);
     let token = current_user_token();
@@ -122,7 +130,16 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
         "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let us = get_time_us();
+    //println!("us: {}", us);
+    let p = v_to_p(_ts);
+    unsafe{
+        *p = TimeVal {
+            sec: us / 1_000_000,
+            usec: us % 1_000_000,    
+        };
+    }
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
@@ -133,7 +150,7 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
         "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    0
 }
 
 /// YOUR JOB: Implement mmap.
@@ -142,7 +159,19 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let start_va: VirtAddr = _start.into();
+
+    if !start_va.aligned() {
+        debug!("Map failed: address not aligned");
+        return -1
+    }
+
+    if _port & !0x7 != 0  || _port & 0x7 == 0 {
+        return -1
+    }
+
+    let end_va: VirtAddr = VirtAddr(_start + _len);
+    mmap_current(start_va, end_va, _port)
 }
 
 /// YOUR JOB: Implement munmap.
@@ -151,7 +180,14 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
         "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let start_va: VirtAddr = _start.into();
+    if !start_va.aligned() {
+        debug!("Unmap failed: address not aligned");
+        return -1
+    }
+
+    let end_va: VirtAddr = VirtAddr(_start + _len);
+    munmap_current(start_va, end_va)
 }
 
 /// change data segment size
@@ -171,14 +207,63 @@ pub fn sys_spawn(_path: *const u8) -> isize {
         "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, _path);
+
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let current_task = current_task().unwrap();
+        let mut current_inner = current_task.inner_exclusive_access();
+
+        let new_task = Arc::new(TaskControlBlock::new(data));
+        let mut new_inner = new_task.inner_exclusive_access();
+
+        new_inner.parent = Some(Arc::downgrade(&current_task));
+        current_inner.children.push(new_task.clone());
+
+        drop(new_inner);
+        drop(current_inner);
+
+        let new_pid = new_task.pid.0;
+        // add new task to scheduler
+        add_task(new_task);
+        new_pid as isize
+    }
+    else {
+        -1
+    }
+    
 }
 
-// YOUR JOB: Set task priority.
+/// YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
     trace!(
         "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    if _prio >= 2 {
+        let task = current_task().unwrap();
+        task.inner_exclusive_access().priority = _prio as usize;
+        _prio
+    }
+    else {
+        -1
+    }
+}
+
+
+/// 虚拟地址转换成物理地址
+fn v_to_p<T>(user_va: *const T) -> *mut T {
+    // 获取当前进程页表
+    let page_table = PageTable::from_token(current_user_token());
+    // 计算出vpn
+    let vpn: VirtPageNum = VirtAddr(user_va as usize).floor();
+    // 计算出offset
+    let offset: usize = VirtAddr(user_va as usize).page_offset();
+    // 通过页表找出ppn
+    let ppn: PhysAddr = page_table.translate(vpn).unwrap().ppn().into();
+    // 转换成usize
+    let user_ppn: usize = ppn.into();
+    // 加上offset形成物理地址
+    let user_pa: *mut T = (user_ppn + offset) as *mut T;
+    user_pa
 }

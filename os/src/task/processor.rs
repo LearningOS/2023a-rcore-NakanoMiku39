@@ -7,6 +7,7 @@
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::mm::VirtAddr;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
@@ -47,6 +48,7 @@ impl Processor {
 }
 
 lazy_static! {
+    /// 处理器的全局初始化
     pub static ref PROCESSOR: UPSafeCell<Processor> = unsafe { UPSafeCell::new(Processor::new()) };
 }
 
@@ -108,4 +110,20 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// mmap_current
+pub fn mmap_current(start_va: VirtAddr, end_va: VirtAddr, _port: usize) -> isize {
+    // 找当前任务
+    let current_task = current_task().unwrap();
+    let ret = current_task.inner_exclusive_access().memory_set.mmap(start_va, end_va, _port);
+    ret
+}
+
+/// munmap_current
+pub fn munmap_current(start_va: VirtAddr, end_va: VirtAddr) -> isize {
+    // 找当前任务
+    let current_task = current_task().unwrap();
+    let ret = current_task.inner_exclusive_access().memory_set.munmap(start_va, end_va);
+    ret
 }
