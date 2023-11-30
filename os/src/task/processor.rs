@@ -7,7 +7,10 @@
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::syscall::{TaskInfo};
+use crate::mm::VirtAddr;
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
@@ -47,6 +50,7 @@ impl Processor {
 }
 
 lazy_static! {
+    /// 处理器的全局初始化
     pub static ref PROCESSOR: UPSafeCell<Processor> = unsafe { UPSafeCell::new(Processor::new()) };
 }
 
@@ -61,6 +65,9 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            if task_inner.timer == 0 {
+                task_inner.timer = get_time_ms();
+            }
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -108,4 +115,38 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// add syscall times
+pub fn add_syscall_times(id: usize) {
+    let current_task = current_task().unwrap();
+    let mut task = current_task.inner_exclusive_access();
+    task.syscall_times[id] += 1;
+}
+
+/// get task info
+pub fn get_task_info() -> TaskInfo {
+    let current_task = current_task().unwrap();
+    let task = current_task.inner_exclusive_access();
+    TaskInfo {
+        status: task.task_status,
+        syscall_times: task.syscall_times,
+        time: get_time_ms() - task.timer,
+    }
+}
+
+/// mmap_current
+pub fn mmap_current(start_va: VirtAddr, end_va: VirtAddr, _port: usize) -> isize {
+    // 找当前任务
+    let current_task = current_task().unwrap();
+    let ret = current_task.inner_exclusive_access().memory_set.mmap(start_va, end_va, _port);
+    ret
+}
+
+/// munmap_current
+pub fn munmap_current(start_va: VirtAddr, end_va: VirtAddr) -> isize {
+    // 找当前任务
+    let current_task = current_task().unwrap();
+    let ret = current_task.inner_exclusive_access().memory_set.munmap(start_va, end_va);
+    ret
 }

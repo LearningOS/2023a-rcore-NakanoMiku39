@@ -16,12 +16,13 @@
 mod context;
 mod id;
 mod manager;
-mod processor;
+pub mod processor;
 mod switch;
 #[allow(clippy::module_inception)]
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
+use crate::config::BIG_STRIDE;
 use crate::fs::{open_file, OpenFlags};
 use alloc::sync::Arc;
 pub use context::TaskContext;
@@ -34,7 +35,7 @@ pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-    Processor,
+    Processor, mmap_current, munmap_current, add_syscall_times, get_task_info,
 };
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
@@ -46,6 +47,8 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+
+    task_inner.stride = task_inner.stride + BIG_STRIDE / task_inner.priority;
     drop(task_inner);
     // ---- release current PCB
 

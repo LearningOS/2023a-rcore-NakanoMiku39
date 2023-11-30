@@ -24,6 +24,7 @@ pub struct TaskControlBlock {
 
     /// Mutable
     inner: UPSafeCell<TaskControlBlockInner>,
+
 }
 
 impl TaskControlBlock {
@@ -71,6 +72,19 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Syscall times
+    pub syscall_times: [u32; 500],
+
+    /// Timer
+    pub timer: usize,
+
+    /// Priority
+    pub priority: usize,
+
+    /// Stride
+    pub stride: usize,
+    
 }
 
 impl TaskControlBlockInner {
@@ -135,6 +149,10 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    syscall_times: [0; 500],
+                    timer: 0,
+                    priority: 16,
+                    stride: 0
                 })
             },
         };
@@ -216,6 +234,10 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    syscall_times: [0; 500],
+                    timer: 0,
+                    priority: 16,
+                    stride: 0
                 })
             },
         });
