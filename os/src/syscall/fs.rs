@@ -1,6 +1,6 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags, Stat};
-use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
+use crate::fs::{open_file, OpenFlags, Stat, ROOT_INODE, };
+use crate::mm::{translated_byte_buffer, translated_str, UserBuffer, translated_refmut};
 use crate::task::{current_task, current_user_token};
 
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
@@ -81,30 +81,14 @@ pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
         "kernel:pid[{}] sys_fstat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    /*
-    let inner = current_task().unwrap().inner_exclusive_access();
-    // 如果文件标识符不合法
-    if _fd >= inner.fd_table.len() {
-        -1
-    }
-
-    // 如果文件标识符不存在
-    if inner.fd_table[_fd].is_none() {
-        -1
-    }
-
-    if let Some(file)  = &inner.fd_table[fd] {
-        let stat = file.stat();
-        let stat_slice = unsafe {
-            core::slice::from_raw_parts(&stat as *const Stat as *const u8, core::mem::size_of::<Stat>())
-        };
-
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    if let Some(file) = &inner.fd_table[_fd] {
+        let stat = file.stat(); // 获取stat
         drop(inner);
-
-        let mut buffer = translated_byte_buffer(current_user_token(), st as *const u8, core::mem::size_of::<Stat>());
-        buffer[0].copy_from_slice(stat_slice);
+        let st = translated_refmut(current_user_token(), _st);
+        *st = stat;
     }
-    */
     0
 }
 
@@ -114,10 +98,10 @@ pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
         "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    // let token = current_user_token();
-    // let old_name = translated_str(token, _old_name);
-    // let new_name = translated_str(token, _new_name);
-    // ROOT_INODE.create_and_link(&old_name, &new_name)
+    let token = current_user_token();
+    let old_name = translated_str(token, _old_name);
+    let new_name = translated_str(token, _new_name);
+    ROOT_INODE.linkat(&old_name, &new_name);
     0
 }
 
@@ -127,8 +111,8 @@ pub fn sys_unlinkat(_name: *const u8) -> isize {
         "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    // let token = current_user_token();
-    // let name = translated_str(token, _name);
-    // ROOT_INODE.find_and_unlink(&name)
+    let token = current_user_token();
+    let name = translated_str(token, _name);
+    ROOT_INODE.unlinkat(&name);
     0
 }
