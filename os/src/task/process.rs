@@ -49,6 +49,30 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// deadlock dectection
+    pub deadlock_detect: bool,
+    /// mutex_available
+    /// 含有 m 个元素的一维数组，每个元素代表可利用的某一类资源的数目，
+    /// 其初值是该类资源的全部可用数目，其值随该类资源的分配和回收而动态地改变。
+    /// Available[j] = k，表示第j类资源的可用数量为k
+    pub mutex_available: Vec<usize>,
+    /// max
+    /// n * m矩阵，表示n个线程中，每个线程对m类资源的最大需求量。Max[i,j] = h，表示线程i需要第j类资源的最大数量为h
+    /// pub max: Vec<Vec<usize>>,
+    /// mutex_allocation
+    /// n * m矩阵，表示每类资源已分配给每个线程的资源数。Allocation[i,j] = g，则表示线程i当前己分得第j类资源的数量为g
+    pub mutex_allocation: Vec<Vec<usize>>,
+    /// mutex_need
+    /// n * m的矩阵，表示每个线程还需要的各类资源数量。Need[i,j] = d，则表示线程i还需要第j类资源的数量为d
+    pub mutex_need: Vec<Vec<usize>>,
+    /// 上述三个矩阵间存在如下关系：
+    /// Need[i,j] = Max[i,j] - mutex_allocation[i, j]
+    /// 同上但是信号量
+    pub semaphore_available: Vec<usize>,
+    /// 同上但是信号量
+    pub semaphore_allocation: Vec<Vec<usize>>,
+    /// 同上但是信号量
+    pub semaphore_need: Vec<Vec<usize>>,
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +143,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    mutex_available: Vec::new(),
+                    mutex_allocation: Vec::new(),
+                    mutex_need: Vec::new(),
+                    semaphore_available: Vec::new(),
+                    semaphore_allocation: Vec::new(),
+                    semaphore_need: Vec::new(),
                 })
             },
         });
@@ -245,6 +276,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    mutex_available: Vec::new(),
+                    mutex_allocation: Vec::new(),
+                    mutex_need: Vec::new(),
+                    semaphore_available: Vec::new(),
+                    semaphore_allocation: Vec::new(),
+                    semaphore_need: Vec::new(),
                 })
             },
         });

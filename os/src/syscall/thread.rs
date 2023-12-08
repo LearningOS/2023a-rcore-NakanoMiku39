@@ -4,6 +4,7 @@ use crate::{
     trap::{trap_handler, TrapContext},
 };
 use alloc::sync::Arc;
+use alloc::vec;
 /// thread create syscall
 pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     trace!(
@@ -35,6 +36,24 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     let new_task_res = new_task_inner.res.as_ref().unwrap();
     let new_task_tid = new_task_res.tid;
     let mut process_inner = process.inner_exclusive_access();
+
+    // 进程的内部控制块
+    let mutex_count = process_inner.mutex_list.len();
+    if process_inner.mutex_need.is_empty() {
+        process_inner.mutex_need.push(vec![0; mutex_count]);
+        process_inner.mutex_allocation.push(vec![0; mutex_count]);
+    }
+    process_inner.mutex_allocation.push(vec![0; mutex_count]);
+    process_inner.mutex_need.push(vec![0; mutex_count]);
+
+    let semaphore_count = process_inner.semaphore_list.len();
+    if process_inner.semaphore_need.is_empty() {
+        process_inner.semaphore_need.push(vec![0; semaphore_count]);
+        process_inner.semaphore_allocation.push(vec![0; semaphore_count]);
+    }
+    process_inner.semaphore_allocation.push(vec![0; semaphore_count]);
+    process_inner.semaphore_need.push(vec![0; semaphore_count]);
+
     // add new thread to current process
     let tasks = &mut process_inner.tasks;
     while tasks.len() < new_task_tid + 1 {
