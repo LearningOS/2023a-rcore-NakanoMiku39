@@ -213,18 +213,14 @@ impl Inode {
     /// linkat
     pub fn linkat(&self, old_name: &str, new_name: &str) {
         let mut fs = self.fs.lock();
-        // 查找到需要连接到的inode号
+        // 获取根目录inode
         let inode_id = self.read_disk_inode(|root_inode| self.find_inode_id(old_name, root_inode)).unwrap();
-        // 使得inode同时指向新文件
-        // 指向了新的文件所以要加一个direntry
-        self.modify_disk_inode(|disk_inode| {
-            // 获取inode大小
-            let inode_size = disk_inode.size;
-            // 增加inode大小
-            self.increase_size(inode_size + DIRENT_SZ as u32, disk_inode, &mut fs);
-            // 增加新direntry
-            let dirent = DirEntry::new(new_name, inode_id);
-            disk_inode.write_at(inode_size as usize, dirent.as_bytes(), &self.block_device);
+        // 向根目录新增目录项
+        self.modify_disk_inode(|root_inode| {
+            let inode_size = root_inode.size;
+            self.increase_size(inode_size + DIRENT_SZ as u32, root_inode, &mut fs); // 增加根目录inode大小
+            let dirent = DirEntry::new(new_name, inode_id); // 新增目录项，用链接的inode初始化
+            root_inode.write_at(inode_size as usize, dirent.as_bytes(), &self.block_device);
         });
 
         block_cache_sync_all();
@@ -232,16 +228,16 @@ impl Inode {
 
     /// unlinkat
     pub fn unlinkat(&self, name: &str) {
-        self.modify_disk_inode(|disk_inode| {
-            let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+        self.modify_disk_inode(|root_inode| {
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
             // 寻找需要unlink的direntry
             for i in 0..file_count {
                 // 读取当前位置的direntry
                 let mut dirent = DirEntry::empty();
-                disk_inode.read_at(i * DIRENT_SZ, dirent.as_bytes_mut(), &self.block_device);
+                root_inode.read_at(i * DIRENT_SZ, dirent.as_bytes_mut(), &self.block_device);
                 // 如果找到了该条目就把这段清空
                 if name == dirent.name() {
-                    disk_inode.write_at(i * DIRENT_SZ, DirEntry::empty().as_bytes(), &self.block_device);
+                    root_inode.write_at(i * DIRENT_SZ, DirEntry::empty().as_bytes(), &self.block_device);
                     return;
                 }
             }
